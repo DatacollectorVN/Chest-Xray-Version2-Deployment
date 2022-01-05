@@ -27,7 +27,7 @@ def setup_config_infer(params):
     cfg.OUTPUT_DIR = params["OUTPUT_DIR"]
     cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, params["TRANSFER_LEARNING"])
     cfg.DATALOADER.NUM_WORKERS = 0
-    
+    cfg.MODEL.DEVICE = params["DEVICE"]
     if "retina" in params["MODEL"]:
         cfg.MODEL.RETINANET.SCORE_THRESH_TEST = params["SCORE_THR"]
         cfg.MODEL.RETINANET.NUM_CLASSES = params["NUM_CLASSES"]
