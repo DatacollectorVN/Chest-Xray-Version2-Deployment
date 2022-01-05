@@ -6,10 +6,10 @@ CLASSES_NAME : ["Aortic enlargement", "Cardiomegaly", "ILD", "Infiltration", "No
 NUM_CLASSES : 5
 COLOR : [[59, 238, 119], [206, 221, 133], [0, 0, 255], [211, 176, 166], [102, 65, 77]]
 MODEL : "COCO-Detection/retinanet_R_101_FPN_3x.yaml"
-TRANSFER_LEARNING : "best_model_map50_res101.pth"
+TRANSFER_LEARNING : "best_model_map50.pth"
 NAME_REGISTER : "chestxray_"
 RANDOM_FLIP : "none"
-OUTPUT_DIR : "./models"
+OUTPUT_DIR : "./snapshots"
 SCORE_THR_VAL : 0.05
 SCORE_THR : 0.5
 NMS_THR_VAL : 0.5

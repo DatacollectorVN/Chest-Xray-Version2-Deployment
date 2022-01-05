@@ -1,1 +1,2 @@
-models/
+snapshots/
+**/__pycache__/

@@ -1,3 +1,5 @@
+-f https://dl.fbaipublicfiles.com/detectron2/wheels/cpu/torch1.9/index.html
+detectron2
 ensemble_boxes==1.0.7
 streamlit==0.89.0
 matplotlib==3.4.3

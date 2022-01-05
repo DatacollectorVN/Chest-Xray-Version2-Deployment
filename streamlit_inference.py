@@ -14,6 +14,8 @@ from detectron2.utils.logger import setup_logger
 setup_logger()
 import logging
 logger = logging.getLogger("detectron2")
+from src.download_5_classes_model import Cfg
+import sys
 
 FILE_INFER_CONFIG = os.path.join("config", "inference.yaml")
 with open(FILE_INFER_CONFIG) as file:
@@ -71,4 +73,11 @@ def main():
     st.image(img_after, caption = "Image after prediction")
 
 if __name__ == "__main__":
-    main()
+    if os.path.isdir(params["OUTPUT_DIR"]) is not True:
+        os.makedirs(params["OUTPUT_DIR"], exist_ok = True)
+        cfg = Cfg()
+        cfg.down_model(destination = os.path.join(params["OUTPUT_DIR"], "best_model_map50.pth"))
+        print("Done")
+        
+    if os.path.isdir(params["OUTPUT_DIR"]):
+        main()
