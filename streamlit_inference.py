@@ -46,11 +46,13 @@ def main():
     # UI of website
     st.header("**CHEST X-RAY VERSION2**")
     st.write("by Kos Nhan")
+    st.write("Read carefully the [instructions](https://github.com/DatacollectorVN/Chest-Xray-Version2/tree/master/website-streamlit) of that model")
+    st.write("If you don't have the X-ray image, click [here](https://drive.google.com/drive/folders/1HnTG2LXkltJOFPdVNYx8JplI8phUqpSK?usp=sharing) to download")
     file = st.sidebar.file_uploader('Upload img file (JPG/PNG format)')
     params["SCORE_THR"] = st.sidebar.number_input("Confidence Score Threshold", min_value = 0.0, max_value = 11.0, format = "%f", value = 0.5)
     params["NMS_THR"] = st.sidebar.number_input("IOU NMS Threshold", min_value = 0.0, max_value = 1.0, format = "%f", value = 0.5, )
     if not file:
-        st.write("Please upload your image (png, jpg)")
+        st.write("Please upload your image (JPG/PNG format)")
         return
     
     cfg = setup_config_infer(params)
