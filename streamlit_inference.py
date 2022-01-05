@@ -20,7 +20,7 @@ FILE_INFER_CONFIG = os.path.join("config", "inference.yaml")
 with open(FILE_INFER_CONFIG) as file:
     params = yaml.load(file, Loader = yaml.FullLoader)
 
-@st.cache(hash_funcs={torch.nn.parameter.Parameter: lambda _: None})
+@st.cache(hash_funcs = {torch.nn.parameter.Parameter: lambda _: None}, ttl = 300)
 def load_model(cfg):
     return DefaultPredictor(cfg)
 
