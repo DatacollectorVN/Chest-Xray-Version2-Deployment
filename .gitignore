@@ -1,2 +1,15 @@
 snapshots/
 **/__pycache__/
+
+# models
+output/*.pth
+
+# samples
+samples/*
+
+#pyenv 
+MLservice/**/bin
+MLservice/**/etc
+MLservice/**/include
+MLservice/**/lib
+MLservice/**/share
