@@ -18,7 +18,7 @@ class Cfg(object):
 def main(model_directory):
     cfg = Cfg()
     os.makedirs(model_directory, exist_ok = True)
-    cfg.down_model(destination = os.path.join(params["OUTPUT_DIR"], "best_model_map50.pth"))
+    cfg.down_model(destination = os.path.join(model_directory, "best_model_map50.pth"))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -14,7 +14,7 @@ RUN /bin/bash -c "pip3 install -r requirements_docker.txt \
     && pip3 install cython \
     && pip3 install -U 'git+https://github.com/cocodataset/cocoapi.git#subdirectory=PythonAPI' \
     && python -m pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cpu/index.html \
-    && python src/download_5_classes_model.py"
+    && python src/download_5_classes_model.py --model_directory snapshots"
 
 ENTRYPOINT ["streamlit", "run"]
 
