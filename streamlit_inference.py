@@ -3,19 +3,27 @@ import yaml
 from PIL import Image
 import torch
 import numpy as np
-from src.utils import detectron2_prediction, get_outputs_detectron2, draw_bbox_infer
+from src.utils import detectron2_prediction, get_outputs_detectron2, draw_bbox_infer, config, upload_image_to_s3
 from detectron2.engine import  DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2 import model_zoo
 import streamlit as st
 import time
+import boto3
+import pymysql
 from detectron2.utils.logger import setup_logger
 setup_logger()
 import logging
 logger = logging.getLogger("detectron2")
-from src.download_5_classes_model import Cfg
+#from src.download_5_classes_model import Cfg
 import sys
 
+s3_resource = None
+rds_client = None
+INI_FILE_PATH_RDS = 'aws-connect/database_mysql_aws_rds.ini'
+INI_FILE_PATH_S3 = 'aws-connect/database_aws_s3.ini'
+SECTION_RDS = 'MySQL-AWS-RDS'
+SECTION_S3 = 'AWS-S3'
 FILE_INFER_CONFIG = os.path.join("config", "inference.yaml")
 with open(FILE_INFER_CONFIG) as file:
     params = yaml.load(file, Loader = yaml.FullLoader)
@@ -57,8 +65,8 @@ def main():
     
     cfg = setup_config_infer(params)
     model = load_model(cfg)
-    img = Image.open(file)
-    img = np.array(img.convert("RGB"))
+    img_file = Image.open(file)
+    img = np.array(img_file.convert("RGB"))
     st.image(img, caption = "Orginal image")
     start = time.time()
     outputs = detectron2_prediction(model, img)
@@ -69,18 +77,26 @@ def main():
     pred_confidence_scores = pred_confidence_scores.detach().numpy()
     pred_confidence_scores = np.round(pred_confidence_scores, 2)
     pred_classes = pred_classes.detach().numpy().astype(int)
-
+    print(pred_bboxes)
+    print(pred_bboxes[:, 0])
     img_after = draw_bbox_infer(img, pred_bboxes, 
                                 pred_classes, pred_confidence_scores,
                                 params["CLASSES_NAME"], params["COLOR"], 5)
     st.image(img_after, caption = "Image after prediction")
+    upload_image_to_s3(s3_resource, img_file, file.name)
 
 if __name__ == "__main__":
-    if os.path.isdir(params["OUTPUT_DIR"]) is not True:
-        os.makedirs(params["OUTPUT_DIR"], exist_ok = True)
-        cfg = Cfg()
-        cfg.down_model(destination = os.path.join(params["OUTPUT_DIR"], "best_model_map50.pth"))
-        print("Done")
-        
+    # if os.path.isdir(params["OUTPUT_DIR"]) is not True:
+    #     os.makedirs(params["OUTPUT_DIR"], exist_ok = True)
+    #     cfg = Cfg()
+    #     cfg.down_model(destination = os.path.join(params["OUTPUT_DIR"], "best_model_map50.pth"))
+    #     print("Done")
+    if (s3_resource is None) & (rds_client is None):
+        s3_params = config(INI_FILE_PATH_S3, SECTION_S3)
+        session = boto3.Session(**s3_params)
+        s3_resource = session.resource('s3')
+        #s3_client = boto3.resource('s3',**s3_params)
+        rds_params = config(INI_FILE_PATH_RDS, SECTION_RDS)
+        rds_client = pymysql.connect(**rds_params)
     if os.path.isdir(params["OUTPUT_DIR"]):
         main()

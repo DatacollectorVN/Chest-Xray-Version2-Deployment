@@ -6,9 +6,19 @@ import matplotlib.pyplot as plt
 import cv2
 from PIL import Image
 from collections import Counter
-from ensemble_boxes import nms, weighted_boxes_fusion
-from detectron2.structures import BoxMode
+import sys
+import boto3
+import io
 import os
+sys.path.append("./aws-connect")
+INI_FILE_PATH_RDS = 'aws-connect/database_mysql_aws_rds.ini'
+INI_FILE_PATH_S3 = 'aws-connect/database_aws_s3.ini'
+SECTION_RDS = 'MySQL-AWS-RDS'
+SECTION_S3 = 'AWS-S3'
+from config import config
+import pymysql
+#from ensemble_boxes import nms, weighted_boxes_fusion
+from detectron2.structures import BoxMode
 
 def plot_multi_imgs(imgs, # 1 batchs contain multiple images
                     cols=2, size=10, # size of figure
@@ -223,3 +233,85 @@ def write_metadata_experiment(params):
         f.write("TRANSFER,TRANSFER_LEARNING,RESIZE,MODEL,IMS_PER_BATCH,BATCH_SIZE_PER_IMAGE,WARMUP_ITERS,BASE_LR,MAX_ITER,STEPS_MIN,STEPS_MAX,GAMMA,LR_SCHEDULER_NAME,RANDOM_FLIP,EVAL_PERIOD")
         f.write("\n")
         f.write(str(params["TRANSFER"]) + "," + params["TRANSFER_LEARNING"] + "," + str(params["RESIZE"]) + "," + params["MODEL"] + "," + str(params["IMS_PER_BATCH"]) + "," + str(params["BATCH_SIZE_PER_IMAGE"]) + "," + str(params["WARMUP_ITERS"]) + "," + str(params["BASE_LR"]) + "," + str(params["MAX_ITER"]) +  "," + str(params["STEPS_MIN"]) + "," + str(params["STEPS_MAX"]) + "," + str(params["GAMMA"]) + "," + params["LR_SCHEDULER_NAME"] + "," + params["RANDOM_FLIP"] + "," + str(params["EVAL_PERIOD"]))
+
+def check_connect_rds():
+    conn = None
+    try:
+        # read connection parameters
+        params = config(INI_FILE_PATH_RDS, SECTION_RDS)
+
+        # connect to the PostgreSQL server
+        print('Connecting to the PostgreSQL database...')
+        conn = pymysql.connect(**params)
+		
+        # create a cursor
+        cur = conn.cursor()
+        
+	# execute a statement
+        print('PostgreSQL database version:')
+        cur.execute('SELECT version()')
+
+        # display the PostgreSQL database server version
+        db_version = cur.fetchone()
+        print(db_version)
+       
+	# close the communication with the PostgreSQL
+        cur.close()
+    except (Exception, pymysql.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+            print('Database connection closed.')
+
+def check_connect_s3():
+    try:
+        params = config(INI_FILE_PATH_S3, SECTION_S3)
+        s3_client = boto3.client('s3', **params)
+        print('Connect successfully')
+    except Exception as error:
+        print(error)
+
+def upload_image_to_s3(s3_resource, image_file, image_file_name):
+    exist_images_file_in_s3 = [i.key for i in s3_resource.Bucket('temp-db-1').objects.all()]
+    if image_file_name not in exist_images_file_in_s3:
+        in_mem_file = io.BytesIO()
+        image_file.save(in_mem_file, format=image_file.format)
+        in_mem_file.seek(0)
+        print('yes')
+        s3_resource.meta.client.upload_fileobj(in_mem_file, 'temp-db-1', image_file_name)
+    else:
+        print('no')
+
+def update_data_to_rds(rds_client, pred_bboxes, pred_confidence_scores, pred_classes, image_file_name, cs_thr, nms_thr):
+    pred_x_min = pred_bboxes[:, 0]
+    pred_y_min = pred_bboxes[:, 1]
+    pred_x_max = pred_bboxes[:, 2]
+    pred_y_max = pred_bboxes[:, 3]
+    cur = rds_client.cursor()
+    cur.execute('USE `Chest-Xray`;')
+
+    # update Transatraction table
+    cur.execute('SELECT MAX(transaction_id) FROM Transaction;')
+    current_transaction_id =  cur.fetchone()[0]
+    cur.execute('SELECT image_file_path FROM Transaction;')
+    temp_tup = cur.fetchall()
+    exist_images_file_path = [temp_tup[i][0] for i in range(len(temp_tup))]
+    update_query = f'INSERT INTO Transaction VALUES({current_transaction_id+1})'
+    
+
+def temp():
+    # read connection parameters
+    params = config(INI_FILE_PATH_RDS, SECTION_RDS)
+
+    # connect to the PostgreSQL server
+    print('Connecting to the PostgreSQL database...')
+    print(params)
+    conn = pymysql.connect(**params)
+    # create a cursor
+    cur = conn.cursor()
+    cur.execute('USE `Chest-Xray`')
+    cur.execute('SELECT MAX(image_id) FROM Transaction')
+    a = cur.fetchone()[0]
+    cur.execute(f'SELECT * FROM Transaction WHERE image_id = {a}')
+    print(cur.fetchall())
