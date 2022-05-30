@@ -7,15 +7,11 @@ import cv2
 from PIL import Image
 from collections import Counter
 import sys
+from datetime import datetime
 import boto3
 import io
 import os
-sys.path.append("./aws-connect")
-INI_FILE_PATH_RDS = 'aws-connect/database_mysql_aws_rds.ini'
-INI_FILE_PATH_S3 = 'aws-connect/database_aws_s3.ini'
-SECTION_RDS = 'MySQL-AWS-RDS'
-SECTION_S3 = 'AWS-S3'
-from config import config
+from IAC.config import config
 import pymysql
 #from ensemble_boxes import nms, weighted_boxes_fusion
 from detectron2.structures import BoxMode
@@ -234,7 +230,7 @@ def write_metadata_experiment(params):
         f.write("\n")
         f.write(str(params["TRANSFER"]) + "," + params["TRANSFER_LEARNING"] + "," + str(params["RESIZE"]) + "," + params["MODEL"] + "," + str(params["IMS_PER_BATCH"]) + "," + str(params["BATCH_SIZE_PER_IMAGE"]) + "," + str(params["WARMUP_ITERS"]) + "," + str(params["BASE_LR"]) + "," + str(params["MAX_ITER"]) +  "," + str(params["STEPS_MIN"]) + "," + str(params["STEPS_MAX"]) + "," + str(params["GAMMA"]) + "," + params["LR_SCHEDULER_NAME"] + "," + params["RANDOM_FLIP"] + "," + str(params["EVAL_PERIOD"]))
 
-def check_connect_rds():
+def check_connect_rds(INI_FILE_PATH_RDS, SECTION_RDS):
     conn = None
     try:
         # read connection parameters
@@ -248,7 +244,7 @@ def check_connect_rds():
         cur = conn.cursor()
         
 	# execute a statement
-        print('PostgreSQL database version:')
+        print('MySQL database version:')
         cur.execute('SELECT version()')
 
         # display the PostgreSQL database server version
@@ -264,7 +260,106 @@ def check_connect_rds():
             conn.close()
             print('Database connection closed.')
 
-def check_connect_s3():
+def update_data_to_data_lake(rds_client, s3_resource,  aws_s3_info, pred_confidence_scores, pred_classes, pred_bboxes, 
+                             image_file, image_file_name, cs_thr, nms_thr):
+    cur = rds_client.cursor()
+    cur.execute('USE x_ray;')
+    cur.execute('SET FOREIGN_KEY_CHECKS=0;')
+    image_file_exist = []
+    for i in s3_resource.Bucket(aws_s3_info['root_bucket']).objects.filter(Prefix=aws_s3_info['xray_images_bucket']):
+        if i.key.split('/')[1] != '':
+            image_file_exist.append(i.key.split('/')[1])
+    
+    if len(image_file_exist) == 0: # empty folder in s3
+        upload_image_to_s3(s3_resource, image_file, image_file_name, 
+                           aws_s3_info['root_bucket'], aws_s3_info['xray_images_bucket'])
+        print(f"Uploaded {image_file_name} to {aws_s3_info['root_bucket']} s3 bucket in folder {aws_s3_info['xray_images_bucket']}")
+        update_image_entity_rds(cur, aws_s3_info['root_bucket'], aws_s3_info['xray_images_bucket'], 
+                                image_file_name)
+        rds_client.commit()
+        print('Updated image entities')
+        current_trans_id = update_transaction_entity_rds(cur, image_file_name, cs_thr, nms_thr, update_new_image = True)
+        rds_client.commit()
+        print('Updated trasaction entities with new image id')
+        update_pred_bounding_box_entity_rd(cur, current_trans_id, pred_confidence_scores, pred_classes, pred_bboxes)
+        rds_client.commit()
+        print('Update pred_bounding_box entities with new trasaction id')
+    else:
+        if image_file_name not in image_file_exist:
+            print(f'{image_file_name} not exist in s3 butcket')
+            upload_image_to_s3(s3_resource, image_file, image_file_name, 
+                                    aws_s3_info['root_bucket'], aws_s3_info['xray_images_bucket'])
+            print(f"Uploaded {image_file_name} to {aws_s3_info['root_bucket']} s3 bucket in folder {aws_s3_info['xray_images_bucket']}")
+            update_image_entity_rds(cur, aws_s3_info['root_bucket'], aws_s3_info['xray_images_bucket'], 
+                                    image_file_name)
+            rds_client.commit()
+            print(f'Updated image table')
+            current_trans_id = update_transaction_entity_rds(cur, image_file_name, cs_thr, nms_thr, update_new_image = True)
+            rds_client.commit()
+            print(f'Updated transaction table')
+            update_pred_bounding_box_entity_rd(cur, current_trans_id, pred_confidence_scores, pred_classes, pred_bboxes)
+            rds_client.commit()
+            print(f'Updated pred_bounding_box table')
+        else:
+            print(f'{image_file_name} exist in s3 butcket')
+            current_trans_id = update_transaction_entity_rds(cur, image_file_name, cs_thr, nms_thr)
+            rds_client.commit()
+            print(f'Updated transaction table')
+            update_pred_bounding_box_entity_rd(cur, current_trans_id, pred_confidence_scores, pred_classes, pred_bboxes)
+            rds_client.commit()
+            print(f'Updated pred_bounding_box table')
+
+def update_image_entity_rds(cur, bucket, folder, image_file_in_s3):
+    cur.execute('SELECT MAX(image_id) from image;')
+    max_image_id = cur.fetchone()[0]
+    if max_image_id is None:
+        max_image_id = 0
+    cur.execute(f'INSERT INTO image VALUES({max_image_id+1}, "{bucket}", "{folder}", "{image_file_in_s3}")')
+
+def update_transaction_entity_rds(cur, image_file_name, cs_thr, nms_thr, update_new_image=False):
+    cur.execute(f'SELECT image_id FROM image WHERE image_file = "{image_file_name}";')
+    image_id = cur.fetchone()[0]
+    cur.execute(f'SELECT MAX(transaction_id) FROM transaction;')
+    max_transaction_id = cur.fetchone()[0]
+    if max_transaction_id is None:
+        max_transaction_id = 0
+    time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cur.execute(f'INSERT INTO transaction VALUES({max_transaction_id+1}, {image_id}, "{time}", {cs_thr}, {nms_thr})')
+    
+    return max_transaction_id + 1
+
+def update_pred_bounding_box_entity_rd(cur, current_trans_id, pred_confidence_scores, pred_classes, pred_bboxes):
+    cur.execute('SELECT MAX(pred_bbox_id) from pred_bounding_box;')
+    max_pred_bbox_id = cur.fetchone()[0]
+    if max_pred_bbox_id is None:
+        max_pred_bbox_id = 0
+    pred_bbox_id = max_pred_bbox_id + 1
+    pred_x_mins = pred_bboxes[:, 0]
+    pred_y_mins = pred_bboxes[:, 1]
+    pred_x_maxs = pred_bboxes[:, 2]
+    pred_y_maxs = pred_bboxes[:, 3]
+
+    for i in range(len(pred_classes)):
+        pred_class = pred_classes[i]
+        pred_confidence_score = pred_confidence_scores[i]
+        pred_x_min = pred_x_mins[i]
+        pred_y_min = pred_y_mins[i]
+        pred_x_max = pred_x_maxs[i]
+        pred_y_max = pred_y_maxs[i]
+        cur.execute(f'INSERT INTO pred_bounding_box VALUES({pred_bbox_id}, {current_trans_id}, {pred_class}, ROUND({pred_confidence_score}, 3), {pred_x_min}, {pred_y_min}, {pred_x_max}, {pred_y_max})')
+        pred_bbox_id += 1
+
+def parse_sql_scripts(scripts):
+    DELIMITER = ';'
+    stmts = []
+    #return [content + DELIMITER for content in scripts.split(DELIMITER)[:-1]]
+    for i in [content + DELIMITER for content in scripts.split(DELIMITER)[:-1]]:
+        if i.startswith('\n'):
+            i = i[i.find('\n') + len('\n'):]
+        stmts.append(i)
+    return stmts
+### S3
+def check_connect_s3(INI_FILE_PATH_S3, SECTION_S3):
     try:
         params = config(INI_FILE_PATH_S3, SECTION_S3)
         s3_client = boto3.client('s3', **params)
@@ -272,46 +367,18 @@ def check_connect_s3():
     except Exception as error:
         print(error)
 
-def upload_image_to_s3(s3_resource, image_file, image_file_name):
-    exist_images_file_in_s3 = [i.key for i in s3_resource.Bucket('temp-db-1').objects.all()]
-    if image_file_name not in exist_images_file_in_s3:
-        in_mem_file = io.BytesIO()
-        image_file.save(in_mem_file, format=image_file.format)
-        in_mem_file.seek(0)
-        print('yes')
-        s3_resource.meta.client.upload_fileobj(in_mem_file, 'temp-db-1', image_file_name)
-    else:
-        print('no')
+def parse_sql_scripts(scripts):
+    DELIMITER = ';'
+    stmts = []
+    #return [content + DELIMITER for content in scripts.split(DELIMITER)[:-1]]
+    for i in [content + DELIMITER for content in scripts.split(DELIMITER)[:-1]]:
+        if i.startswith('\n'):
+            i = i[i.find('\n') + len('\n'):]
+        stmts.append(i)
+    return stmts
 
-def update_data_to_rds(rds_client, pred_bboxes, pred_confidence_scores, pred_classes, image_file_name, cs_thr, nms_thr):
-    pred_x_min = pred_bboxes[:, 0]
-    pred_y_min = pred_bboxes[:, 1]
-    pred_x_max = pred_bboxes[:, 2]
-    pred_y_max = pred_bboxes[:, 3]
-    cur = rds_client.cursor()
-    cur.execute('USE `Chest-Xray`;')
-
-    # update Transatraction table
-    cur.execute('SELECT MAX(transaction_id) FROM Transaction;')
-    current_transaction_id =  cur.fetchone()[0]
-    cur.execute('SELECT image_file_path FROM Transaction;')
-    temp_tup = cur.fetchall()
-    exist_images_file_path = [temp_tup[i][0] for i in range(len(temp_tup))]
-    update_query = f'INSERT INTO Transaction VALUES({current_transaction_id+1})'
-    
-
-def temp():
-    # read connection parameters
-    params = config(INI_FILE_PATH_RDS, SECTION_RDS)
-
-    # connect to the PostgreSQL server
-    print('Connecting to the PostgreSQL database...')
-    print(params)
-    conn = pymysql.connect(**params)
-    # create a cursor
-    cur = conn.cursor()
-    cur.execute('USE `Chest-Xray`')
-    cur.execute('SELECT MAX(image_id) FROM Transaction')
-    a = cur.fetchone()[0]
-    cur.execute(f'SELECT * FROM Transaction WHERE image_id = {a}')
-    print(cur.fetchall())
+def upload_image_to_s3(s3_resource, image_file, image_file_name, s3_bucket, s3_image_folder):
+    in_mem_file = io.BytesIO()
+    image_file.save(in_mem_file, format=image_file.format)
+    in_mem_file.seek(0)
+    s3_resource.meta.client.upload_fileobj(in_mem_file, s3_bucket, s3_image_folder + '/' + image_file_name)

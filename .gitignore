@@ -1,3 +1,6 @@
 snapshots/
 **/__pycache__/
 temp/
+**/.ipynb_checkpoints
+notebooks/
+IAC/credential_aws.ini
